@@ -1,31 +1,51 @@
-import feedparser
-import tweepy
 import requests
+import tweepy
 import json
 import os
-import random
 import hashlib
 from bs4 import BeautifulSoup
 from datetime import datetime
 
 # ---------------- CONFIG ----------------
 
-RSS_FEED = "https://www.amazon.in/gp/rss/deals"
 AFF_TAG = "anm2-21"
+GITHUB_USERNAME = "YOUR_GITHUB_USERNAME"  # CHANGE THIS
 
 POSTED_FILE = "posted.json"
 COUNT_FILE = "daily_count.json"
+PRICES_FILE = "prices.json"
 SHORT_DIR = "go"
 
 MAX_POSTS_PER_DAY = 24
 MAX_LIGHTNING_PER_DAY = 8
 
-GITHUB_USERNAME = "YOUR_GITHUB_USERNAME"  # <-- CHANGE THIS
+# Category rotation (one per hour)
+CATEGORIES = [
+    {
+        "name": "Mobiles",
+        "url": "https://www.amazon.in/deals?i=electronics&ref=nav_cs_gb"
+    },
+    {
+        "name": "Laptops",
+        "url": "https://www.amazon.in/deals?i=computers&ref=nav_cs_gb"
+    },
+    {
+        "name": "Headphones",
+        "url": "https://www.amazon.in/deals?i=electronics&ref=nav_cs_gb"
+    },
+    {
+        "name": "TV",
+        "url": "https://www.amazon.in/deals?i=electronics&ref=nav_cs_gb"
+    },
+    {
+        "name": "Appliances",
+        "url": "https://www.amazon.in/deals?i=kitchen&ref=nav_cs_gb"
+    }
+]
 
-# ---------------- HELPERS ----------------
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-def add_affiliate(url):
-    return url + ("&" if "?" in url else "?") + f"tag={AFF_TAG}"
+# ---------------- UTILITIES ----------------
 
 def load_json(path, default):
     if not os.path.exists(path):
@@ -37,71 +57,67 @@ def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f)
 
-def shorten_url(long_url):
+def add_affiliate(url):
+    return url + ("&" if "?" in url else "?") + f"tag={AFF_TAG}"
+
+def shorten(url):
     os.makedirs(SHORT_DIR, exist_ok=True)
-    slug = hashlib.md5(long_url.encode()).hexdigest()[:6]
-    file_path = f"{SHORT_DIR}/{slug}.html"
-
-    with open(file_path, "w") as f:
-        f.write(f'<meta http-equiv="refresh" content="0;url={long_url}">')
-
+    slug = hashlib.md5(url.encode()).hexdigest()[:6]
+    path = f"{SHORT_DIR}/{slug}.html"
+    with open(path, "w") as f:
+        f.write(f'<meta http-equiv="refresh" content="0;url={url}">')
     return f"https://{thedesigner2802}.github.io/{SHORT_DIR}/{slug}.html"
 
-def detect_bank_offers(text):
-    text = text.lower()
-    offers = []
-    if "hdfc" in text:
-        offers.append("HDFC Bank Offer")
-    if "sbi" in text:
-        offers.append("SBI Bank Offer")
-    if "icici" in text:
-        offers.append("ICICI Bank Offer")
-    return " | ".join(offers)
+# ---------------- SCRAPING ----------------
+
+def extract_product_links(category_url, limit=15):
+    r = requests.get(category_url, headers=HEADERS, timeout=15)
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    links = []
+    for a in soup.select("a[href*='/dp/']"):
+        href = a.get("href")
+        if "/dp/" in href:
+            link = "https://www.amazon.in" + href.split("?")[0]
+            if link not in links:
+                links.append(link)
+        if len(links) >= limit:
+            break
+
+    return links
 
 def extract_product_data(url):
-    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    r = requests.get(url, headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "html.parser")
-    text = soup.get_text()
+    text = soup.get_text().lower()
 
     price = soup.select_one(".a-price-whole")
     mrp = soup.select_one(".a-text-price span")
     image = soup.select_one("#imgTagWrapperId img")
 
-    is_lightning = "lightning deal" in text.lower()
+    lightning = "lightning deal" in text
+
+    bank = []
+    if "hdfc" in text: bank.append("HDFC")
+    if "sbi" in text: bank.append("SBI")
+    if "icici" in text: bank.append("ICICI")
+
+    asin = url.split("/dp/")[1].split("/")[0]
 
     return {
-        "price": price.text.replace(",", "") if price else None,
-        "mrp": mrp.text.replace("₹", "").replace(",", "") if mrp else None,
+        "asin": asin,
+        "price": int(price.text.replace(",", "")) if price else None,
+        "mrp": int(mrp.text.replace("₹", "").replace(",", "")) if mrp else None,
         "image": image["src"] if image else None,
-        "bank": detect_bank_offers(text),
-        "lightning": is_lightning
+        "lightning": lightning,
+        "bank": " | ".join(bank)
     }
-
-def calc_discount(price, mrp):
-    try:
-        p = float(price)
-        m = float(mrp)
-        off = int(m - p)
-        percent = int((off / m) * 100)
-        return f"₹{off} OFF ({percent}% OFF)"
-    except:
-        return ""
-
-def generate_hashtags(title):
-    tags = ["#AmazonDeals", "#DealsIndia"]
-    t = title.lower()
-    if "mobile" in t or "phone" in t:
-        tags.append("#SmartphoneDeals")
-    if "laptop" in t:
-        tags.append("#LaptopDeals")
-    if "headphone" in t or "earbud" in t:
-        tags.append("#AudioDeals")
-    return " ".join(tags[:4])
 
 # ---------------- MAIN ----------------
 
 def main():
     posted = set(load_json(POSTED_FILE, {"posted": []})["posted"])
+    prices = load_json(PRICES_FILE, {})
     counts = load_json(COUNT_FILE, {"date": "", "total": 0, "lightning": 0})
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -109,88 +125,78 @@ def main():
         counts = {"date": today, "total": 0, "lightning": 0}
 
     if counts["total"] >= MAX_POSTS_PER_DAY:
-        print("Daily limit reached")
         return
 
-    feed = feedparser.parse(RSS_FEED)
-    random.shuffle(feed.entries)
+    # Rotate category by hour
+    hour = datetime.utcnow().hour
+    category = CATEGORIES[hour % len(CATEGORIES)]
 
-    lightning_deals = []
-    normal_deals = []
+    product_links = extract_product_links(category["url"])
 
-    for entry in feed.entries:
-        if entry.link in posted:
+    for link in product_links:
+        data = extract_product_data(link)
+        asin = data["asin"]
+
+        if not data["price"]:
             continue
 
-        data = extract_product_data(entry.link)
-        if data["lightning"]:
-            lightning_deals.append((entry, data))
-        else:
-            normal_deals.append((entry, data))
+        prev_price = prices.get(asin, {}).get("price")
+        prices[asin] = {
+            "price": data["price"],
+            "category": category["name"],
+            "seen": today
+        }
 
-    selected = None
-    is_lightning = False
+        should_post = False
 
-    if lightning_deals and counts["lightning"] < MAX_LIGHTNING_PER_DAY:
-        selected, data = lightning_deals[0]
-        is_lightning = True
-    elif normal_deals:
-        selected, data = normal_deals[0]
+        if data["lightning"] and counts["lightning"] < MAX_LIGHTNING_PER_DAY:
+            should_post = True
+        elif prev_price and data["price"] < prev_price:
+            should_post = True
 
-    if not selected:
-        print("No eligible deals found")
-        return
+        if not should_post or asin in posted:
+            continue
 
-    short_link = shorten_url(add_affiliate(selected.link))
-    discount = calc_discount(data["price"], data["mrp"])
-    hashtags = generate_hashtags(selected.title)
-
-    lightning_text = "⚡ LIGHTNING DEAL ⚡\n" if is_lightning else ""
-
-    tweet_text = (
-        lightning_text +
-        f"{selected.title[:160]}\n"
-        f"{discount}\n"
-        f"{data['bank']}\n"
-        f"👉 {short_link}\n"
-        f"{hashtags}"
-    )
-
-    client = tweepy.Client(
-        consumer_key=os.environ["X_KEY"],
-        consumer_secret=os.environ["X_SECRET"],
-        access_token=os.environ["X_AT"],
-        access_token_secret=os.environ["X_ATS"]
-    )
-
-    if data["image"]:
-        api = tweepy.API(
-            tweepy.OAuth1UserHandler(
-                os.environ["X_KEY"],
-                os.environ["X_SECRET"],
-                os.environ["X_AT"],
-                os.environ["X_ATS"]
-            )
+        text = (
+            ("⚡ LIGHTNING DEAL ⚡\n" if data["lightning"] else "📉 PRICE DROP\n") +
+            f"{category['name']} Deal\n"
+            f"₹{data['price']}\n"
+            f"{data['bank']}\n"
+            f"👉 {shorten(add_affiliate(link))}\n"
+            "#DealsHubIN #AmazonDeals #PriceDrop"
         )
-        with open("img.jpg", "wb") as f:
-            f.write(requests.get(data["image"]).content)
 
-        media = api.media_upload("img.jpg")
-        client.create_tweet(text=tweet_text, media_ids=[media.media_id])
-    else:
-        client.create_tweet(text=tweet_text)
+        client = tweepy.Client(
+            consumer_key=os.environ["X_KEY"],
+            consumer_secret=os.environ["X_SECRET"],
+            access_token=os.environ["X_AT"],
+            access_token_secret=os.environ["X_ATS"]
+        )
 
-    posted.add(selected.link)
-    save_json(POSTED_FILE, {"posted": list(posted)})
+        if data["image"]:
+            api = tweepy.API(
+                tweepy.OAuth1UserHandler(
+                    os.environ["X_KEY"],
+                    os.environ["X_SECRET"],
+                    os.environ["X_AT"],
+                    os.environ["X_ATS"]
+                )
+            )
+            open("img.jpg", "wb").write(requests.get(data["image"]).content)
+            media = api.media_upload("img.jpg")
+            client.create_tweet(text=text, media_ids=[media.media_id])
+        else:
+            client.create_tweet(text=text)
 
-    counts["total"] += 1
-    if is_lightning:
-        counts["lightning"] += 1
+        posted.add(asin)
+        counts["total"] += 1
+        if data["lightning"]:
+            counts["lightning"] += 1
 
-    save_json(COUNT_FILE, counts)
-    print("Tweet posted successfully")
-
-# ---------------- RUN ----------------
+        save_json(POSTED_FILE, {"posted": list(posted)})
+        save_json(PRICES_FILE, prices)
+        save_json(COUNT_FILE, counts)
+        break
 
 if __name__ == "__main__":
     main()
