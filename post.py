@@ -23,25 +23,26 @@ MAX_LIGHTNING_PER_DAY = 8
 CATEGORIES = [
     {
         "name": "Mobiles",
-        "url": "https://www.amazon.in/deals?i=electronics&ref=nav_cs_gb"
+        "url": "https://www.amazon.in/s?k=smartphone"
     },
     {
         "name": "Laptops",
-        "url": "https://www.amazon.in/deals?i=computers&ref=nav_cs_gb"
+        "url": "https://www.amazon.in/s?k=laptop"
     },
     {
         "name": "Headphones",
-        "url": "https://www.amazon.in/deals?i=electronics&ref=nav_cs_gb"
+        "url": "https://www.amazon.in/s?k=headphones"
     },
     {
         "name": "TV",
-        "url": "https://www.amazon.in/deals?i=electronics&ref=nav_cs_gb"
+        "url": "https://www.amazon.in/s?k=smart+tv"
     },
     {
         "name": "Appliances",
-        "url": "https://www.amazon.in/deals?i=kitchen&ref=nav_cs_gb"
+        "url": "https://www.amazon.in/s?k=air+fryer"
     }
 ]
+
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
