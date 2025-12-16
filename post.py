@@ -71,13 +71,13 @@ def shorten(url):
 
 # ---------------- SCRAPING ----------------
 
-def extract_product_links(category_url, limit=15):
+def extract_product_links(category_url, limit=12):
     r = requests.get(category_url, headers=HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, "html.parser")
 
     links = []
-    for a in soup.select("a[href*='/dp/']"):
-        href = a.get("href")
+    for a in soup.select("a.a-link-normal.s-no-outline"):
+        href = a.get("href", "")
         if "/dp/" in href:
             link = "https://www.amazon.in" + href.split("?")[0]
             if link not in links:
