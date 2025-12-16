@@ -1,0 +1,22 @@
+name: Amazon India X Bot
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
+      - run: pip install -r requirements.txt
+      - run: python post.py
+        env:
+          X_KEY: ${{ secrets.X_KEY }}
+          X_SECRET: ${{ secrets.X_SECRET }}
+          X_AT: ${{ secrets.X_AT }}
+          X_ATS: ${{ secrets.X_ATS }}
