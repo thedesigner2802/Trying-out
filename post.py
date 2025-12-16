@@ -109,7 +109,16 @@ def main():
     price, mrp, img, bank, lightning = extract_data(entry.link)
     link = shorten(add_affiliate(entry.link))
 
-    text = f"{'⚡ LIGHTNING DEAL ⚡\n' if lightning else ''}{entry.title[:160]}\n{discount(price,mrp)}\n{bank}\n👉 {link}\n{hashtags(entry.title)}"
+    lightning_text = "⚡ LIGHTNING DEAL ⚡\n" if lightning else ""
+
+text = (
+    lightning_text +
+    f"{entry.title[:160]}\n"
+    f"{discount(price, mrp)}\n"
+    f"{bank}\n"
+    f"👉 {link}\n"
+    f"{hashtags(entry.title)}"
+)
 
     client = tweepy.Client(
         consumer_key=os.environ["X_KEY"],
